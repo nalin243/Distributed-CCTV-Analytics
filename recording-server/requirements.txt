@@ -1,0 +1,16 @@
+flask
+chromadb
+annotated-types==0.7.0
+
+opencv-python==4.13.0.92
+numpy==2.4.4
+ultralytics
+watchdog
+
+torch==2.11.0
+torchvision==0.26.0
+
+onvif_zeep==0.2.12
+zeep==4.3.2
+lxml==6.1.0
+python-dotenv
