@@ -2,8 +2,12 @@ from annotated_types import IsDigits
 from flask import Flask, request, jsonify
 import chromadb
 from datetime import datetime
+import logging
 
 from collections import defaultdict
+import json
+import builtins
+import traceback
 
 import os
 
@@ -11,6 +15,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+
+# --- Logging ---
+LOG_FILE = os.environ.get("LOG_FILE_CLEANUP", "/var/log/cctv-cleanup-microservice.log")
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(LOG_FILE)
+    ]
+)
+log = logging.getLogger(__name__)
 
 # --- Configuration ---
 CHROMA_HOST = os.environ.get("CHROMA_HOST")
@@ -115,92 +132,116 @@ def cleanup():
     NIGHT_HOUR     = 18        # 6 PM
     CAMERA_IDX     = 4
 
-    results = person_crops_collection.get(
-        where={"$and": [
-            {"person_name": {"$ne": "noise"}},
-            {"person_name": {"$ne": "unknown"}}
-        ]},
-        include=['metadatas']
-    )
-    unique_persons = {m['person_name'] for m in results['metadatas']}
+    try:
 
-    for person in unique_persons:
-        response = person_crops_collection.get(
-            where={"person_name": person},
+        results = person_crops_collection.get(
+            where={"$and": [
+                {"person_name": {"$ne": "noise"}},
+                {"person_name": {"$ne": "unknown"}},
+            ]},
             include=['metadatas']
         )
-        ids   = response['ids']
-        metas = response['metadatas']
+        unique_persons = {m['person_name'] for m in results['metadatas']}
 
-        if len(ids) < MAX_TOTAL:
-            continue
+        for person in unique_persons:
 
-        # ── 1. Parse every entry ───────────────────────────────────────────
-        entries = []
-        for cid, meta in zip(ids, metas):
-            parts     = cid.split('/')
-            date_part = parts[5]                          # Date-19-05-2026
-            time_part = parts[6]                          # Time-14-16-32
-            d, mo, y  = date_part.replace("Date-", "").split('-')
-            sort_key  = f"{y}-{mo}-{d}_{time_part}"
-            hour      = int(time_part.replace("Time-", "").split('-')[0])
-            camera    = (
-                meta.get('camera_name')
-                or meta.get('camera')
-                or parts[CAMERA_IDX]
+            response = person_crops_collection.get(
+                where={"person_name": person},
+                include=['metadatas']
             )
-            entries.append({
-                'id':       cid,
-                'camera':   camera,
-                'sort_key': sort_key,
-                'is_night': hour >= NIGHT_HOUR,
-            })
+            ids   = response['ids']
+            metas = response['metadatas']
 
-        entries.sort(key=lambda x: x['sort_key'], reverse=True)  # newest first
+            if len(ids) < MAX_TOTAL:
+                continue
 
-        # ── 2. Reserve night slots (newest 10 night images) ───────────────
-        night_entries = [e for e in entries if e['is_night']]
-        night_keep    = {e['id'] for e in night_entries[:NIGHT_RESERVE]}
+            entries = []
+            for cid, meta in zip(ids, metas):
+                parts     = cid.split('/')
+                date_part = parts[5]                          # Date-19-05-2026
+                time_part = parts[6]                          # Time-14-16-32
+                d, mo, y  = date_part.replace("Date-", "").split('-')
+                sort_key  = f"{y}-{mo}-{d}_{time_part}"
+                hour      = int(time_part.replace("Time-", "").split('-')[0])
+                camera    = (
+                    meta.get('camera_name')
+                    or meta.get('camera')
+                    or parts[CAMERA_IDX]
+                )
+                entries.append({
+                    'id':       cid,
+                    'camera':   camera,
+                    'sort_key': sort_key,
+                    'is_night': hour >= NIGHT_HOUR,
+                })
 
-        # ── 3. Group by camera ────────────────────────────────────────────
-        camera_buckets: dict[str, list] = {}
-        for e in entries:
-            camera_buckets.setdefault(e['camera'], []).append(e)
+            entries.sort(key=lambda x: x['sort_key'], reverse=True)  # newest first
 
-        # ── 4. Largest-remainder allocation (fixes the 130/135 bug) ───────
-        #   Budget for camera slots = total - night reserve
-        camera_budget    = MAX_TOTAL - NIGHT_RESERVE          # 140
-        num_cameras      = len(camera_buckets)
-        guaranteed_total = num_cameras * MIN_PER_CAMERA
-        remainder_slots  = max(0, camera_budget - guaranteed_total)
-        total_images     = len(entries)
+            #reserve night slots
+            night_entries = [e for e in entries if e['is_night']]
+            night_keep    = {e['id'] for e in night_entries[:NIGHT_RESERVE]}
 
-        # Exact fractional share each camera deserves of the remainder
-        raw = {
-            cam: (len(cams) / total_images) * remainder_slots
-            for cam, cams in camera_buckets.items()
-        }
-        # Floor everything first → some slots will be left over
-        bonus = {cam: int(v) for cam, v in raw.items()}
-        leftover = remainder_slots - sum(bonus.values())
+            #group by the camera name
+            camera_buckets: dict[str, list] = {}
+            for e in entries:
+                camera_buckets.setdefault(e['camera'], []).append(e)
 
-        # Hand the leftover slots to whoever had the biggest fractional loss
-        for cam in sorted(camera_buckets, key=lambda c: raw[c] - bonus[c], reverse=True)[:leftover]:
-            bonus[cam] += 1
+            #largest remainder allocation
+            camera_budget    = MAX_TOTAL - len(night_keep)#if there are no night entries discard it 
+            num_cameras      = len(camera_buckets)
+            estimated_total = num_cameras * MIN_PER_CAMERA
+            remainder_slots  = max(0, camera_budget - estimated_total)
+            total_images     = len(entries)
 
-        # ── 5. Build the keep set ─────────────────────────────────────────
-        ids_to_keep = set(night_keep)
-        for cam, cam_entries in camera_buckets.items():
-            keep_count = MIN_PER_CAMERA + bonus[cam]
-            for e in cam_entries[:keep_count]:
-                ids_to_keep.add(e['id'])
+            # log.info(f"night_keep: {len(night_keep)}")
+            # log.info(f"camera_budget: {camera_budget}")
+            # log.info(f"estimated_total: {estimated_total}")
+            # log.info(f"remainder_slots: {remainder_slots}")
+            # log.info(f"total_images: {total_images}")
 
-        # ── 6. Delete the rest ────────────────────────────────────────────
-        ids_to_delete = [cid for cid in ids if cid not in ids_to_keep]
-        if ids_to_delete:
-            person_crops_collection.delete(ids=ids_to_delete)
-            for img_id in ids_to_delete:
-                delete_snapshot_helper(img_id)
+            # Exact fractional share each camera deserves of the remainder
+            raw = {
+                cam: int((len(cams) / total_images) * remainder_slots)
+                for cam, cams in camera_buckets.items()
+            }
+
+            leftover = remainder_slots - sum(raw.values())
+
+            # Hand the leftover slots to whoever had the biggest fractional loss, though this may fail if that camera does not actually have that many crops
+            for cam in sorted(camera_buckets, key=lambda c: raw[c] - raw[c], reverse=True)[:leftover]:
+                raw[cam] += 1
+
+            ids_to_keep = set(night_keep) if len(night_keep)>0 else set()
+            for cam, cam_entries in camera_buckets.items():#TO FIX: camera_buckets already contains night_entries, below code is just temporary until this can be fixed, count is fine but proportional allocations do not occur
+                keep_count = MIN_PER_CAMERA + raw[cam]
+                for e in cam_entries[:keep_count]:
+                    ids_to_keep.add(e['id'])
+
+            #if the leftover slotting failed just take remaining newest snapshots of the camera with largest amount of crops
+            if len(ids_to_keep)<MAX_TOTAL:
+                max_count_camera = builtins.sorted(camera_buckets, key=lambda x: len(camera_buckets[x]), reverse=True)
+                for c in max_count_camera:
+
+                    if(len(ids_to_keep)==MAX_TOTAL):
+                        break
+
+                    log.info(c)
+                    for item in camera_buckets[c]:
+                        if(len(ids_to_keep) == MAX_TOTAL):
+                            break
+                        ids_to_keep.add(item['id'])
+
+            #perform deletions
+            ids_to_delete = [cid for cid in ids if cid not in ids_to_keep]
+            if ids_to_delete:
+                person_crops_collection.delete(ids=ids_to_delete)
+                for img_id in ids_to_delete:
+                    delete_snapshot_helper(img_id)
+
+    except Exception as e:
+        error_stack = traceback.format_exc()
+        log.error(f"Exception occured aborting deletion: {e}")
+        log.error(f"Stack: {error_stack}")
 
     return jsonify({"success": True}), 200
 
