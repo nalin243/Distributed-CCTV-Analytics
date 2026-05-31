@@ -1,14 +1,16 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 flask
 chromadb
 annotated-types==0.7.0
 
-opencv-python==4.13.0.92
-numpy==2.4.4
+numpy<2.0.0
+opencv-python-headless<=4.10.0.82
 ultralytics
 watchdog
 
-torch==2.11.0
-torchvision==0.26.0
+torch==2.0.1+cpu
+torchvision==0.15.2+cpu
 
 onvif_zeep==0.2.12
 zeep==4.3.2
