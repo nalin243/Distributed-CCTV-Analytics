@@ -43,11 +43,13 @@ CAMERA_MAP = {
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8001"))
 
+SNAPSHOTS_COLLECTION_NAME = os.environ.get("SNAPSHOTS_COLLECTION_NAME","")
+
 # --- ChromaDB ---
 # Connects to the background ChromaDB server
 chroma     = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
 collection = chroma.get_or_create_collection(
-    name="cctv_images",
+    name=SNAPSHOTS_COLLECTION_NAME,
     metadata={"hnsw:space": "cosine"}
 )
 

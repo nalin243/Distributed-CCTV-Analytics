@@ -45,10 +45,12 @@ _LAST_STORED = OrderedDict()
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8001"))
 
+CROPS_COLLECTION_NAME = os.environ.get("CROPS_COLLECTION_NAME","")
+
 # --- ChromaDB ---
 chroma     = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
 collection = chroma.get_or_create_collection(
-    name="person_crops",
+    name=CROPS_COLLECTION_NAME,
     metadata={"hnsw:space": "cosine"}
 )
 

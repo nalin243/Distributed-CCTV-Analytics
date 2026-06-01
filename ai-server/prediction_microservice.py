@@ -15,7 +15,7 @@ app = Flask(__name__)
 # --- Configuration ---
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8001"))
-COLLECTION_NAME = "person_crops"
+COLLECTION_NAME = os.environ.get("CROPS_COLLECTION_NAME","")
 THRESHOLD = float(os.environ.get("PREDICTION_THRESHOLD", "0.75"))
 GAP_THRESHOLD = float(os.environ.get("GAP_THRESHOLD", "0.08"))
 RERANK_N = int(os.environ.get("RERANK_N", "20"))

@@ -20,14 +20,16 @@ EMBED_TEXT_API_URL  = os.environ.get("EMBED_TEXT_API_SEARCH_URL")
 
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8001"))
+SNAPSHOTS_COLLECTION_NAME = os.environ.get("SNAPSHOTS_COLLECTION_NAME","")
+CROPS_COLLECTION_NAME = os.environ.get("CROPS_COLLECTION_NAME","")
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}, r"/image": {"origins": "*"}, r"/video": {"origins": "*"}})
 
 # --- ChromaDB ---
 chroma                 = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
-collection_cctv_images = chroma.get_collection(name="cctv_images")
-collection_cctv_crops  = chroma.get_collection(name="person_crops")
+collection_cctv_images = chroma.get_collection(name=SNAPSHOTS_COLLECTION_NAME)
+collection_cctv_crops  = chroma.get_collection(name=CROPS_COLLECTION_NAME)
 
 
 #LLM Time Parser - CURRENTLY  NOT IN USE
