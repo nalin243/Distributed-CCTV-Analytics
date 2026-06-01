@@ -9,10 +9,6 @@ from watchdog.events import FileSystemEventHandler
 
 from datetime import datetime, timedelta
 from collections import OrderedDict
-
-import cv2
-import openvino as ov
-import numpy as np
 import threading
 
 from dotenv import load_dotenv
@@ -30,6 +26,7 @@ log = logging.getLogger(__name__)
 
 CROPS_DIR  = os.environ.get("CROPS_DIR", "/var/cctv/crops")
 PREDICTION_MICROSERVICE_URL = os.environ.get("PREDICTION_URL", "http://0.0.0.0:8010/")
+EMBED_IMAGE_API_REID_URL = os.environ.get("EMBED_IMAGE_API_REID_URL","")
 
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png')
 
@@ -54,12 +51,6 @@ collection = chroma.get_or_create_collection(
     name="person_crops",
     metadata={"hnsw:space": "cosine"}
 )
-
-REID_MODEL_PATH = os.environ.get("REID_MODEL_PATH", "models/person-reidentification-retail-0277.xml")
-core           = ov.Core()
-model          = core.read_model(model=REID_MODEL_PATH)
-compiled_model = core.compile_model(model, device_name="CPU")
-
 
 def _eviction_worker(interval_seconds=60):
     while True:
@@ -117,14 +108,6 @@ def wait_for_file_ready(path, timeout=5, interval=1):
     return False
 
 
-def embed_image(image_path):
-    img          = cv2.imread(image_path)
-    img          = cv2.resize(img, (128, 256))
-    input_tensor = np.expand_dims(img.transpose(2, 0, 1), axis=0).astype(np.float32)
-    embedding    = compiled_model([input_tensor])[compiled_model.output(0)]
-    return embedding[0].tolist()
-
-
 def parse_metadata(image_path):
     parts      = Path(image_path).parts
     snap_parts = len(Path(CROPS_DIR).parts)
@@ -157,9 +140,19 @@ def process_image(image_path):
 
         log.info(f"Embedding: camera={camera} date={date} hour={int(hour)} file={filename}")
 
-        embedding = embed_image(image_path)
+        response = requests.post(
+            EMBED_IMAGE_API_REID_URL,
+            json={
+            'image_path': image_path,
+            },
+            timeout=5,
+        )
 
-        response         = requests.post(
+        response.raise_for_status()
+
+        embedding = response.json()['embedding']
+
+        response = requests.post(
             PREDICTION_MICROSERVICE_URL + "predict",
             json={
             'embedding': embedding,
@@ -168,9 +161,9 @@ def process_image(image_path):
             timeout=5,
         ).json()
 
-        match_found      = response['match_found']
+        match_found = response['match_found']
         assigned_cluster = "unassigned"
-        assigned_name    = "unknown"
+        assigned_name = "unknown"
 
         if match_found and response['identity'] not in ('noise', 'unknown', 'Unknown'):
             assigned_cluster = response['cluster_id']

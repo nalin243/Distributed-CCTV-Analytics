@@ -1,11 +1,15 @@
 import io
 import os
 import base64
-import torch
-import open_clip
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from PIL import Image
+
+import cv2
+import openvino as ov
+import numpy as np
+import torch
+import open_clip
 
 import uvicorn
 
@@ -14,9 +18,15 @@ load_dotenv()
 
 app = FastAPI(title="CCTV Embedding API")
 
-# --- Load Model ONCE ---
+#Load search embedding model
 MODEL_NAME = os.environ.get("CLIP_MODEL_NAME", "ViT-H-14")
 PRETRAINED = os.environ.get("CLIP_PRETRAINED", "laion2b_s32b_b79k")
+
+#Load the person reid model
+REID_MODEL_PATH = os.environ.get("REID_MODEL_PATH", "models/person-reidentification-retail-0277.xml")
+core           = ov.Core()
+model          = core.read_model(model=REID_MODEL_PATH)
+compiled_model = core.compile_model(model, device_name="CPU")
 
 print(f"[LOADING] OpenCLIP {MODEL_NAME} into RAM...")
 model, _, preprocess = open_clip.create_model_and_transforms(MODEL_NAME, pretrained=PRETRAINED)
@@ -24,15 +34,24 @@ tokenizer = open_clip.get_tokenizer(MODEL_NAME)
 model.eval()
 print("[READY] Server is accepting requests.")
 
-# --- API Data Models ---
 class TextRequest(BaseModel):
     text: str
 
 class ImageRequest(BaseModel):
     image_path: str
 
-# --- Endpoints ---
-@app.post("/embed/text")
+@app.post("/embed/reid/image")
+def embed_reid_image(req: ImageRequest):
+    try:
+        img = cv2.imread(req.image_path)
+        img = cv2.resize(img, (128, 256))
+        input_tensor = np.expand_dims(img.transpose(2, 0, 1), axis=0).astype(np.float32)
+        embedding = compiled_model([input_tensor])[compiled_model.output(0)]
+        return {"embedding":embedding[0].tolist()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/embed/search/text")
 def embed_text(req: TextRequest):
     try:
         text_tokens = tokenizer([req.text])
@@ -43,7 +62,7 @@ def embed_text(req: TextRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/embed/image")
+@app.post("/embed/search/image")
 def embed_image(req: ImageRequest):
     try:
         # Load image from the shared local disk

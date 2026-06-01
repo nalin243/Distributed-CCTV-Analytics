@@ -30,7 +30,7 @@ SNAPSHOTS_DIR  = os.environ.get("SNAPSHOTS_DIR", "/var/cctv/snapshots")
 CHROMA_DB_PATH = os.environ.get("CHROMA_DB_PATH", "/var/cctv/chromadb")
 
 # API Server Config
-EMBED_API_URL  = os.environ.get("EMBED_IMAGE_API_URL", "http://localhost:8002/embed/image")
+EMBED_API_URL  = os.environ.get("EMBED_IMAGE_API_SEARCH_URL", "http://localhost:8002/embed/image")
 
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png')
 

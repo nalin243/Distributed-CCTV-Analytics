@@ -16,7 +16,7 @@ LLM_URL         = os.environ.get("LLM_URL")
 CLUSTERING_URL  = os.environ.get("CLUSTERING_URL")
 CLEANUP_URL     = os.environ.get("CLEANUP_URL")
 USE_LLM         = os.environ.get("USE_LLM", "False").lower() in ("true", "1", "yes")
-EMBED_TEXT_API_URL  = os.environ.get("EMBED_TEXT_API_URL")
+EMBED_TEXT_API_URL  = os.environ.get("EMBED_TEXT_API_SEARCH_URL")
 
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8001"))
