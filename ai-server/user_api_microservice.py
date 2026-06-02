@@ -10,6 +10,8 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 load_dotenv()
 
+from state import remove_entry,search_remove_entry
+
 # --- Config ---
 CHROMA_DB_PATH  = os.environ.get("CHROMA_DB_PATH", "/var/cctv/chromadb")
 LLM_URL         = os.environ.get("LLM_URL")
@@ -244,6 +246,23 @@ def get_image():
         return "Image not found", 404
     return send_file(path)
 
+@app.route('/api/crop/delete', methods=['POST'])
+def crop_delete():
+    data       = request.json
+    image_path = data.get('image_path')
+
+    if not image_path:
+        return jsonify({"error": "image_path required"}), 400
+    try:
+        collection_cctv_crops.delete(ids=[image_path])
+        response_cleanup = (requests.post(CLEANUP_URL + "delete_snapshot",
+                                          json={'image_path': image_path}, timeout=10)).json()
+        remove_entry(image_path)#state db cleanup
+        return jsonify({"success": True})
+    except Exception as e:
+        print(f"Failed to delete snapshot {image_path}: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/snapshot/delete', methods=['POST'])
 def snapshot_delete():
     data       = request.json
@@ -252,9 +271,10 @@ def snapshot_delete():
     if not image_path:
         return jsonify({"error": "image_path required"}), 400
     try:
-        collection_cctv_crops.delete(where={"image_path": image_path})
+        collection_cctv_images.delete(ids=[image_path])
         response_cleanup = (requests.post(CLEANUP_URL + "delete_snapshot",
                                           json={'image_path': image_path}, timeout=10)).json()
+        search_remove_entry(image_path)#state db cleanup
         return jsonify({"success": True})
     except Exception as e:
         print(f"Failed to delete snapshot {image_path}: {e}")

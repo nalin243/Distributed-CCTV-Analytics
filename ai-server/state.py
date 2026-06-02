@@ -38,8 +38,8 @@ _local = threading.local()
 def _conn() -> sqlite3.Connection:
     if not hasattr(_local, "conn"):
         _local.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        _local.conn.execute("PRAGMA journal_mode=WAL")    # safe concurrent writes
-        _local.conn.execute("PRAGMA synchronous=NORMAL")  # fast enough, crash-safe
+        _local.conn.execute("PRAGMA journal_mode=WAL")#for concurrent writes
+        _local.conn.execute("PRAGMA synchronous=NORMAL")
         _local.conn.executescript("""
             CREATE TABLE IF NOT EXISTS person_crops (
                 image_path   TEXT PRIMARY KEY,
@@ -105,6 +105,13 @@ def _clear_retry(table: str, image_path: str) -> None:
     )
     _conn().commit()
 
+def _remove_entry(table: str, image_path: str) -> None:
+    _conn().execute(
+        f"DELETE FROM {table} WHERE image_path = ? AND status = 'embedded'",
+        (image_path,)
+    )
+    _conn().commit()
+
 
 # ── Person crops API ──────────────────────────────────────────────────────────
 
@@ -123,6 +130,9 @@ def get_retry_queue() -> list[str]:
 def clear_retry(image_path: str) -> None:
     _clear_retry("person_crops", image_path)
 
+def remove_entry(image_path: str) -> None:
+    _remove_entry("person_crops", image_path)
+
 
 # ── Search embeddings API ─────────────────────────────────────────────────────
 
@@ -140,3 +150,6 @@ def search_get_retry_queue() -> list[str]:
 
 def search_clear_retry(image_path: str) -> None:
     _clear_retry("search_embeddings", image_path)
+
+def search_remove_entry(image_path: str) -> None:
+    _remove_entry("search_embeddings", image_path)

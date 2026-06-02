@@ -14,7 +14,7 @@ import threading
 from dotenv import load_dotenv
 load_dotenv()
 
-from state import already_embedded, mark_embedded, mark_for_retry, get_retry_queue, clear_retry
+from state import already_embedded, mark_embedded, mark_for_retry, get_retry_queue, clear_retry, remove_entry
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 CROPS_DIR  = os.environ.get("CROPS_DIR", "/var/cctv/crops")
 PREDICTION_MICROSERVICE_URL = os.environ.get("PREDICTION_URL", "http://0.0.0.0:8010/")
 EMBED_IMAGE_API_REID_URL = os.environ.get("EMBED_IMAGE_API_REID_URL","")
+CLEANUP_URL     = os.environ.get("CLEANUP_URL","")
 
 SUPPORTED_EXTENSIONS = ('.jpg', '.jpeg', '.png')
 
@@ -174,7 +175,12 @@ def process_image(image_path):
             if is_too_recent(assigned_cluster, parsed_time):
                 elapsed = (parsed_time - _LAST_STORED[assigned_cluster]).total_seconds()
                 log.info(f"Dedup skip: {assigned_name} ({assigned_cluster}) — {elapsed:.1f}s ago")
+                #Cleanup
                 mark_embedded(image_path)
+                remove_entry(image_path)#state db cleanup
+                response_cleanup = (requests.post(CLEANUP_URL + "delete_snapshot",
+                                    json={'image_path': image_path}, timeout=3)).json()
+
                 return True
 
             log.info(f"Auto-match: {assigned_name} → cluster {assigned_cluster}")

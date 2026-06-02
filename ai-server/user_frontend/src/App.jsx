@@ -240,7 +240,7 @@ function SearchTab({ cameras, dates }) {
     return () => window.removeEventListener("keydown", h);
   }, [doSearch]);
 
-  const handleDelete = async () => {
+  const handleDeleteSnapshot = async () => {
     if (!lightbox || !window.confirm("Permanently delete this snapshot?")) return;
     try {
       await api.deleteSnapshot(lightbox.image_path);
@@ -249,8 +249,8 @@ function SearchTab({ cameras, dates }) {
     } catch (e) { alert(e.message); }
   };
 
-  const badgeBg  = (p) => p >= 70 ? "#dcfce7" : p >= 45 ? "#fef3c7" : "#f1f5f9";
-  const badgeCol = (p) => p >= 70 ? T.green   : p >= 45 ? T.amber   : T.muted2;
+  const badgeBg = (p) => p >= 70 ? "#dcfce7" : p >= 45 ? "#fef3c7" : "#f1f5f9";
+  const badgeCol = (p) => p >= 70 ? T.green : p >= 45 ? T.amber : T.muted2;
   const badgeBdr = (p) => p >= 70 ? "#bbf7d0" : p >= 45 ? "#fde68a" : T.border2;
 
   const selectStyle = {
@@ -405,34 +405,34 @@ function SearchTab({ cameras, dates }) {
       )}
 
       {/* No onMove passed — Move button will not appear in SearchTab lightbox */}
-      {lightbox && <Lightbox meta={lightbox} onClose={() => setLightbox(null)} onDelete={handleDelete} />}
+      {lightbox && <Lightbox meta={lightbox} onClose={() => setLightbox(null)} onDelete={handleDeleteSnapshot} />}
     </div>
   );
 }
 
 // ─── VisitorDetail ────────────────────────────────────────────────────────────
 function VisitorDetail({ cluster, onBack, onRefresh }) {
-  const { isMobile }                = useBreakpoint();
-  const [lightbox, setLightbox]     = useState(null);
+  const { isMobile } = useBreakpoint();
+  const [lightbox, setLightbox] = useState(null);
   const [selectMode, setSelectMode] = useState(false);
-  const [selected, setSelected]     = useState(new Set());
-  const [deleting, setDeleting]     = useState(false);
+  const [selected, setSelected] = useState(new Set());
+  const [deleting, setDeleting] = useState(false);
   const [showRename, setShowRename] = useState(false);
-  const [showMerge, setShowMerge]   = useState(false);
-  const [showMove, setShowMove]     = useState(false);
-  const [renameVal, setRenameVal]   = useState("");
+  const [showMerge, setShowMerge] = useState(false);
+  const [showMove, setShowMove] = useState(false);
+  const [renameVal, setRenameVal] = useState("");
   const [mergeTarget, setMergeTarget] = useState("");
-  const [moveTarget, setMoveTarget]   = useState("");
-  const [movingSnap, setMovingSnap]   = useState(null);
+  const [moveTarget, setMoveTarget] = useState("");
+  const [movingSnap, setMovingSnap] = useState(null);
   const [allClusters, setAllClusters] = useState([]);
 
-  const c        = cluster;
+  const c = cluster;
   const allPaths = c.source_paths || [];
-  const isNamed  = c.person_name !== "unknown";
-  const newest   = latestPath(allPaths);
+  const isNamed = c.person_name !== "unknown";
+  const newest = latestPath(allPaths);
   const allSorted = allPaths.map(p => ({ p, k: getPathSortKey(p) })).sort((a, b) => a.k.localeCompare(b.k));
   const firstPath = allSorted[0]?.p;
-  const lastPath  = allSorted[allSorted.length - 1]?.p;
+  const lastPath = allSorted[allSorted.length - 1]?.p;
   const dateRange = allSorted.length > 1
     ? `${parsePathDate(firstPath)} – ${parsePathDate(lastPath)}`
     : (firstPath ? parsePathDate(firstPath) : "—");
@@ -445,7 +445,7 @@ function VisitorDetail({ cluster, onBack, onRefresh }) {
   const handleDeleteSelected = async () => {
     if (!selected.size || !window.confirm(`Permanently delete ${selected.size} snapshot(s)?`)) return;
     setDeleting(true);
-    for (const path of selected) { try { await api.deleteSnapshot(path); } catch {} }
+    for (const path of selected) { try { await api.deleteCrop(path); } catch {} }
     setDeleting(false); setSelectMode(false); setSelected(new Set()); onRefresh();
   };
 
@@ -493,13 +493,13 @@ function VisitorDetail({ cluster, onBack, onRefresh }) {
   };
   // ──────────────────────────────────────────────────────────────────────────
 
-  const handleLightboxDelete = async () => {
-    if (!lightbox || !window.confirm("Permanently delete this snapshot?")) return;
-    try { await api.deleteSnapshot(lightbox.image_path); setLightbox(null); onRefresh(); }
+  const handleDeleteCrop = async () => {
+    if (!lightbox || !window.confirm("Permanently delete this crop detection?")) return;
+    try { await api.deleteCrop(lightbox.image_path); setLightbox(null); onRefresh(); }
     catch (e) { alert(e.message); }
   };
 
-  const groups     = groupPathsByDate(allPaths);
+  const groups = groupPathsByDate(allPaths);
   const inputStyle = {
     width: "100%", padding: "9px 12px", borderRadius: 7, fontSize: 13,
     background: T.s2, border: `1px solid ${T.border2}`, color: T.text,
@@ -591,7 +591,7 @@ function VisitorDetail({ cluster, onBack, onRefresh }) {
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 8, marginBottom: 6 }}>
                 {sorted.map(p => {
-                  const t    = parsePathTime(p);
+                  const t = parsePathTime(p);
                   const isSel = selected.has(p);
                   return (
                     <div key={p}
@@ -650,7 +650,7 @@ function VisitorDetail({ cluster, onBack, onRefresh }) {
         <Lightbox
           meta={lightbox}
           onClose={() => setLightbox(null)}
-          onDelete={handleLightboxDelete}
+          onDelete={handleDeleteCrop}
           onMove={() => openMove(lightbox.image_path)}
         />
       )}
@@ -718,14 +718,14 @@ function VisitorDetail({ cluster, onBack, onRefresh }) {
 function VisitorsTab() {
   const { isMobile } = useBreakpoint();
   const [clusters, setClusters] = useState([]);
-  const [stats, setStats]       = useState(null);
-  const [loading, setLoading]   = useState(false);
-  const [detail, setDetail]     = useState(null);
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [detail, setDetail] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try { const data = await api.getClusterStats(); setClusters(data.clusters || []); setStats(data.stats || {}); }
-    catch {} setLoading(false);
+    catch { } setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -743,7 +743,7 @@ function VisitorsTab() {
     return <VisitorDetail cluster={clusters[detail]} onBack={() => setDetail(null)} onRefresh={handleRefresh} />;
   }
 
-  const named    = clusters.filter(c => c.person_name !== "unknown").length;
+  const named = clusters.filter(c => c.person_name !== "unknown").length;
   const topVisit = clusters[0]?.count || 0;
 
   return (
@@ -764,10 +764,10 @@ function VisitorsTab() {
 
       {stats && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10, marginBottom: 14 }}>
-          <StatCard val={clusters.length}        label="Persons"    color={T.accent} />
-          <StatCard val={named}                  label="Named"      color={T.green} />
+          <StatCard val={clusters.length} label="Persons" color={T.accent} />
+          <StatCard val={named} label="Named" color={T.green} />
           <StatCard val={stats.total_crops || 0} label="Detections" color={T.amber} />
-          <StatCard val={topVisit}               label="Top"        color={T.purple} />
+          <StatCard val={topVisit} label="Top" color={T.purple} />
         </div>
       )}
 

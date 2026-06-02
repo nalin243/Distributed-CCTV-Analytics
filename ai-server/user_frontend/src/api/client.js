@@ -9,23 +9,22 @@ async function req(path, opts = {}) {
   return res.json();
 }
 
-// ── Search ────────────────────────────────────────────────────────────────────
 export const searchFootage = (payload) =>
   req('/api/search', { method: 'POST', body: JSON.stringify(payload) });
 
 export const getMetadata = () => req('/api/metadata');
 
-// ── Clusters ──────────────────────────────────────────────────────────────────
-export const runClustering   = ()        => req('/api/cluster/run');
-export const getClusterStats = ()        => req('/api/cluster/stats');
-export const nameCluster     = (cluster_id, name) =>
+export const runClustering = () => req('/api/cluster/run');
+export const getClusterStats = () => req('/api/cluster/stats');
+export const nameCluster = (cluster_id, name) =>
   req('/api/cluster/name', { method: 'POST', body: JSON.stringify({ cluster_id, name }) });
-export const mergeClusters   = (source_id, target_id) =>
+export const mergeClusters = (source_id, target_id) =>
   req('/api/cluster/merge', { method: 'POST', body: JSON.stringify({ source_id, target_id }) });
-export const deleteCluster   = (cluster_id) =>
+export const deleteCluster = (cluster_id) =>
   req('/api/cluster/delete', { method: 'POST', body: JSON.stringify({ cluster_id }) });
 
-// ── Snapshots ─────────────────────────────────────────────────────────────────
+export const deleteCrop = (image_path) =>
+  req('/api/crop/delete', { method: 'POST', body: JSON.stringify({ image_path }) });
 export const deleteSnapshot = (image_path) =>
   req('/api/snapshot/delete', { method: 'POST', body: JSON.stringify({ image_path }) });
 export const updateSnapshotCluster = (image_path, new_cluster_id, new_person_name) =>

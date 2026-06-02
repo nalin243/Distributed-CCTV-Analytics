@@ -10,7 +10,7 @@ from watchdog.events import FileSystemEventHandler
 from dotenv import load_dotenv
 load_dotenv()
 
-from state import search_already_embedded, search_mark_embedded, search_mark_for_retry, search_get_retry_queue, search_clear_retry
+from state import search_already_embedded, search_mark_embedded, search_mark_for_retry, search_get_retry_queue, search_clear_retry, search_remove_entry
 
 # --- Logging ---
 LOG_FILE = os.environ.get("LOG_FILE", "/var/log/cctv-embedder.log")

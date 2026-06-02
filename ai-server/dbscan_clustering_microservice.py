@@ -5,15 +5,20 @@ from flask import Flask, request, jsonify, render_template_string, send_file, Re
 import chromadb
 import uuid
 
+import requests
 import os
 import json
 
 from dotenv import load_dotenv
 load_dotenv()
 
+from state import remove_entry
+
 CLUSTER_EPS     = float(os.environ.get("CLUSTER_EPS", "0.40"))
 CLUSTER_SAMPLES = int(os.environ.get("CLUSTER_SAMPLES", "2"))
 NAMES_FILE      = os.environ.get("NAMES_FILE", "/var/cctv/person_names.json")
+
+CLEANUP_URL     = os.environ.get("CLEANUP_URL","")
 
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8001"))
@@ -234,6 +239,15 @@ def cluster_delete():
 
     if del_ids:
         collection_cctv_crops.delete(ids=del_ids)
+        try:
+            for image_path in del_ids:
+                response_cleanup = (requests.post(CLEANUP_URL + "delete_snapshot",
+                                                  json={'image_path': image_path}, timeout=3)).json()
+                remove_entry(image_path)#state db cleanup
+        except Exception as e:
+            print("Error while deleting images", str(e))
+            return jsonify({"error": str(e)}), 500
+
 
     names = load_names()
     names.pop(cluster_id, None)
