@@ -19,6 +19,7 @@ CLUSTERING_URL  = os.environ.get("CLUSTERING_URL")
 CLEANUP_URL     = os.environ.get("CLEANUP_URL")
 USE_LLM         = os.environ.get("USE_LLM", "False").lower() in ("true", "1", "yes")
 EMBED_TEXT_API_URL  = os.environ.get("EMBED_TEXT_API_SEARCH_URL")
+WORKING_DIR = os.environ.get("WORKING_DIR",'/var/cctv')
 
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8001"))
@@ -241,10 +242,12 @@ def cluster_delete():
 
 @app.route('/image')
 def get_image():
-    path = request.args.get('path')
-    if not path or not os.path.isfile(path):
-        return "Image not found", 404
-    return send_file(path)
+    image_path = request.args.get('path')
+    if not image_path or not os.path.isfile(image_path):
+        return jsonify({"error":"Image not found"}), 400
+    if WORKING_DIR not in image_path:
+            return jsonify({"error":"Invalid image path"}), 400
+    return send_file(image_path)
 
 @app.route('/api/crop/delete', methods=['POST'])
 def crop_delete():
@@ -253,6 +256,11 @@ def crop_delete():
 
     if not image_path:
         return jsonify({"error": "image_path required"}), 400
+
+
+    if WORKING_DIR not in image_path:
+        return jsonify({"error":"Invalid image path"}), 400
+
     try:
         collection_cctv_crops.delete(ids=[image_path])
         response_cleanup = (requests.post(CLEANUP_URL + "delete_snapshot",
@@ -270,6 +278,10 @@ def snapshot_delete():
 
     if not image_path:
         return jsonify({"error": "image_path required"}), 400
+
+    if WORKING_DIR not in image_path:
+        return jsonify({"error":"Invalid image path"}), 400
+
     try:
         collection_cctv_images.delete(ids=[image_path])
         response_cleanup = (requests.post(CLEANUP_URL + "delete_snapshot",
@@ -315,7 +327,10 @@ def snapshot_update_cluster():
 def get_video():
     image_path = request.args.get('image_path')
     if not image_path:
-        return "No path provided", 400
+        return jsonify({"error":"No path provided"}), 400
+
+    if WORKING_DIR not in image_path:
+        return jsonify({"error":"Invalid image path"}), 400
 
     vid_dir_path = image_path.replace('/var/cctv/snapshots', '/var/cctv/footage')
     vid_dir_path = vid_dir_path.replace('/var/cctv/crops', '/var/cctv/footage')

@@ -28,11 +28,11 @@ export const deleteCrop = (image_path) =>
 export const deleteSnapshot = (image_path) =>
   req('/api/snapshot/delete', { method: 'POST', body: JSON.stringify({ image_path }) });
 export const updateSnapshotCluster = (image_path, new_cluster_id, new_person_name) =>
-  fetch("/api/snapshot/update_cluster", {
+  req("/api/snapshot/update_cluster", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ image_path, new_cluster_id, new_person_name }),
-  }).then(r => r.json());
+  });
 
 // ── Media URLs ────────────────────────────────────────────────────────────────
 export const imageUrl = (path) => `${BASE}/image?path=${encodeURIComponent(path)}`;

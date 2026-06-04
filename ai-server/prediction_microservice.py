@@ -168,7 +168,6 @@ def predict():
             if gap < GAP_THRESHOLD:
                 return jsonify({
                     "identity":    "unknown",
-                    "nearest_dist":  round(best_score / total, 3),
                     "match_found": False,
                     "reason":      "ambiguous",
                     "candidates":  [{"name": n, "score": round(s/total, 3)}

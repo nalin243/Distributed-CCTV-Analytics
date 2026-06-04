@@ -176,11 +176,8 @@ def process_image(image_path):
                 elapsed = (parsed_time - _LAST_STORED[assigned_cluster]).total_seconds()
                 log.info(f"Dedup skip: {assigned_name} ({assigned_cluster}) — {elapsed:.1f}s ago")
                 #Cleanup
-                mark_embedded(image_path)
-                remove_entry(image_path)#state db cleanup
                 response_cleanup = (requests.post(CLEANUP_URL + "delete_snapshot",
                                     json={'image_path': image_path}, timeout=3)).json()
-
                 return True
 
             log.info(f"Auto-match: {assigned_name} → cluster {assigned_cluster}")
