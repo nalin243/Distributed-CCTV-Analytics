@@ -19,6 +19,8 @@ CLUSTERING_URL  = os.environ.get("CLUSTERING_URL")
 CLEANUP_URL     = os.environ.get("CLEANUP_URL")
 USE_LLM         = os.environ.get("USE_LLM", "False").lower() in ("true", "1", "yes")
 EMBED_TEXT_API_URL  = os.environ.get("EMBED_TEXT_API_SEARCH_URL")
+EMBED_CENTRAL_SERVER_URL = os.environ.get("EMBED_CENTRAL_SERVER_URL","")
+PREDICTION_URL = os.environ.get("PREDICTION_URL","")
 WORKING_DIR = os.environ.get("WORKING_DIR",'/var/cctv')
 
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
@@ -27,7 +29,7 @@ SNAPSHOTS_COLLECTION_NAME = os.environ.get("SNAPSHOTS_COLLECTION_NAME","")
 CROPS_COLLECTION_NAME = os.environ.get("CROPS_COLLECTION_NAME","")
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}, r"/image": {"origins": "*"}, r"/video": {"origins": "*"}})
+CORS(app, resources={r"/api/*": {"origins": "*"}, r"/image": {"origins": "*"}, r"/video": {"origins": "*"}, r"/health": {"origins": "*"}})
 
 # --- ChromaDB ---
 chroma                 = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
@@ -373,6 +375,44 @@ def debug_db2():
     sample = collection_cctv_crops.get(limit=5, include=["metadatas"])
     return jsonify({"sample_metadata": sample["metadatas"]})
 
+
+
+@app.route('/api/health')
+def health():
+    status = {"service": "user_api", "chromadb": "unknown", "clustering": "unknown", "embedding": "unknown", "prediction": "unknown"}
+    healthy = True
+
+    try:
+        collection_cctv_images.count()
+        collection_cctv_crops.count()
+        status["chromadb"] = "healthy"
+    except Exception as e:
+        status["chromadb"] = f"unhealthy: {e}"
+        healthy = False
+
+    try:
+        r = requests.get(CLUSTERING_URL + "/health", timeout=3)
+        status["clustering"] = "healthy" if r.ok else f"unhealthy: {r.status_code}"
+    except Exception:
+        status["clustering"] = "unreachable"
+        healthy = False
+
+    try:
+        r = requests.get(EMBED_CENTRAL_SERVER_URL + "/health", timeout=3)
+        status["embedding"] = "healthy" if r.ok else f"unhealthy: {r.status_code}"
+    except Exception:
+        status["embedding"] = "unreachable"
+        healthy = False
+
+    try:
+        r = requests.get(PREDICTION_URL + "health", timeout=3)
+        status["prediction"] = "healthy" if r.ok else f"unhealthy: {r.status_code}"
+    except Exception:
+        status["prediction"] = "unreachable"
+        healthy = False
+
+    status["status"] = "healthy" if healthy else "degraded"
+    return jsonify(status), 200 if healthy else 503
 
 if __name__ == '__main__':
     app.run(host=os.environ.get("API_SERVER_HOST", "0.0.0.0"),

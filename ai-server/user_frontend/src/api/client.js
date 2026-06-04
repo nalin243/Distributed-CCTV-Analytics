@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_API_BASE ?? 'http://192.168.1.16:5000';
+const BASE = import.meta.env.VITE_API_BASE ?? '';
 
 async function req(path, opts = {}) {
   const res = await fetch(`${BASE}${path}`, {
@@ -33,6 +33,12 @@ export const updateSnapshotCluster = (image_path, new_cluster_id, new_person_nam
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ image_path, new_cluster_id, new_person_name }),
   });
+
+
+export const getHealth = async () => {
+  const res = await fetch(`${BASE}/api/health`);
+  return res.json();
+};
 
 // ── Media URLs ────────────────────────────────────────────────────────────────
 export const imageUrl = (path) => `${BASE}/image?path=${encodeURIComponent(path)}`;

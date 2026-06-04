@@ -195,6 +195,14 @@ def predict():
         print(e)
         return jsonify({"error": str(e)}), 500
 
+@app.route('/health')
+def health():
+    try:
+        count = collection.count()
+        return jsonify({"status": "healthy", "service": "prediction", "crops_count": count})
+    except Exception as e:
+        return jsonify({"status": "unhealthy", "service": "prediction", "error": str(e)}), 503
+
 if __name__ == '__main__':
     app.run(host=os.environ.get("PREDICTION_SERVER_HOST", "0.0.0.0"),
             port=int(os.environ.get("PREDICTION_SERVER_PORT", "8010")),

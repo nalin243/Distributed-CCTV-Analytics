@@ -255,6 +255,21 @@ def cluster_delete():
 
     return jsonify({"success": True, "deleted": len(del_ids)})
 
+
+@app.route('/health')
+def health():
+    try:
+        crops_count = collection_cctv_crops.count()
+        images_count = collection_cctv_images.count()
+        return jsonify({
+            "status": "healthy",
+            "service": "clustering",
+            "crops_count": crops_count,
+            "images_count": images_count
+        })
+    except Exception as e:
+        return jsonify({"status": "unhealthy", "service": "clustering", "error": str(e)}), 503
+
 if __name__ == '__main__':
     app.run(host=os.environ.get("CLUSTERING_SERVER_HOST", "0.0.0.0"),
             port=int(os.environ.get("CLUSTERING_SERVER_PORT", "8005")),

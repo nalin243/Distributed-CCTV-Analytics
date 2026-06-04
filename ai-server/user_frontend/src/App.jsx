@@ -121,10 +121,113 @@ function Panel({ children, style }) {
   );
 }
 
+// ─── Service Status Indicator ─────────────────────────────────────────────────
+function ServiceStatus() {
+  const [health, setHealth] = useState(null);
+  const [open, setOpen] = useState(false);
+
+  const fetchHealth = useCallback(async () => {
+    try {
+      const data = await api.getHealth();
+      setHealth(data);
+    } catch {
+      setHealth({ status: "offline", chromadb: "unreachable", clustering: "unreachable", embedding: "unreachable" });
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchHealth();
+    const interval = setInterval(fetchHealth, 30000);
+    return () => clearInterval(interval);
+  }, [fetchHealth]);
+
+  const dotColor = !health ? T.muted : health.status === "healthy" ? T.green : health.status === "degraded" ? T.amber : T.red;
+  const label = !health ? "Checking…" : health.status === "healthy" ? "All Systems OK" : health.status === "degraded" ? "Degraded" : "Offline";
+
+  const services = health ? [
+    { name: "ChromaDB", status: health.chromadb },
+    { name: "Clustering", status: health.clustering },
+    { name: "Embedding", status: health.embedding },
+    { name: "Prediction", status: health.prediction },
+  ] : [];
+
+  const svcColor = (s) => s === "healthy" ? T.green : s?.startsWith("unhealthy") ? T.red : T.amber;
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div
+        onClick={() => setOpen(!open)}
+        style={{
+          display: "flex", alignItems: "center", gap: 6,
+          fontSize: 11, color: T.muted, cursor: "pointer",
+          padding: "4px 8px", borderRadius: 6,
+          background: open ? T.s2 : "transparent",
+          border: `1px solid ${open ? T.border : "transparent"}`,
+          transition: "all .15s",
+          userSelect: "none",
+        }}
+      >
+        <div style={{
+          width: 7, height: 7, borderRadius: "50%", background: dotColor, flexShrink: 0,
+          animation: health?.status === "healthy" ? "pulse 2s ease-in-out infinite" : "none",
+          boxShadow: health?.status !== "healthy" ? `0 0 6px ${dotColor}` : "none",
+        }} />
+        <span>{label}</span>
+        <svg width="8" height="8" viewBox="0 0 12 12" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s" }}>
+          <polyline points="2,4 6,8 10,4" fill="none" stroke={T.muted} strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      </div>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", right: 0,
+          background: T.surface, border: `1px solid ${T.border}`,
+          borderRadius: 8, padding: 12, minWidth: 200,
+          boxShadow: "0 8px 30px rgba(0,0,0,0.12)", zIndex: 100,
+        }}>
+          <div style={{
+            fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, fontWeight: 600,
+            color: T.muted, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10,
+          }}>Service Health</div>
+          {services.map(svc => (
+            <div key={svc.name} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "6px 0", borderBottom: `1px solid ${T.border}`,
+            }}>
+              <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{svc.name}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{
+                  fontFamily: "'IBM Plex Mono', monospace", fontSize: 10,
+                  color: svcColor(svc.status),
+                }}>{svc.status === "healthy" ? "✓" : "✗"}</span>
+                <div style={{
+                  width: 6, height: 6, borderRadius: "50%",
+                  background: svcColor(svc.status),
+                }} />
+              </div>
+            </div>
+          ))}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            marginTop: 8, paddingTop: 4,
+          }}>
+            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: T.muted }}>Auto-refresh 30s</span>
+            <button onClick={(e) => { e.stopPropagation(); fetchHealth(); }} style={{
+              background: "none", border: `1px solid ${T.border2}`, borderRadius: 4,
+              padding: "2px 8px", fontSize: 10, color: T.muted2, cursor: "pointer",
+              fontFamily: "'IBM Plex Mono', monospace",
+            }}>↻ Refresh</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Lightbox ─────────────────────────────────────────────────────────────────
 function Lightbox({ meta, onClose, onDelete, onMove }) {
   const [mode, setMode] = useState("video");
-  const { isMobile }    = useBreakpoint();
+  const { isMobile } = useBreakpoint();
 
   useEffect(() => { setMode("video"); }, [meta]);
   useEffect(() => {
@@ -1143,16 +1246,13 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: T.muted }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: T.green, animation: "pulse 2s ease-in-out infinite" }} />
-            {!isMobile && "System Online"}
-          </div>
+          <ServiceStatus />
         </div>
       </header>
 
       {/* Main Container */}
       <main style={{ maxWidth: 1200, width: "100%", margin: "0 auto", flex: 1, padding: isMobile ? "14px 12px 80px" : "24px", display: "flex", flexDirection: "column" }}>
-        
+
         {/* Tab bar */}
         <div style={{
           display: "flex", gap: 4,

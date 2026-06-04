@@ -78,6 +78,11 @@ def embed_image(req: ImageRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/health")
+def health():
+    return {"status": "healthy", "service": "embedding", "model": MODEL_NAME}
+
 if __name__ == "__main__":
     uvicorn.run(app,
                 host=os.environ.get("EMBEDDING_SERVER_HOST", "0.0.0.0"),
