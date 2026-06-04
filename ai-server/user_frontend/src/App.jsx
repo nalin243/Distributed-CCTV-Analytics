@@ -675,7 +675,7 @@ function VisitorDetail({ cluster, onBack, onRefresh }) {
           <select value={mergeTarget} onChange={e => setMergeTarget(e.target.value)} style={inputStyle}>
             {allClusters.map(cl => (
               <option key={cl.cluster_id} value={cl.cluster_id}>
-                {cl.person_name !== "Unknown" ? cl.person_name : cl.cluster_id} ({cl.count})
+                {cl.person_name !== "unknown" ? cl.person_name : cl.cluster_id} ({cl.count})
               </option>
             ))}
           </select>
@@ -906,7 +906,7 @@ function StatsTab() {
         <StatCard val={`${String(peakHour).padStart(2,"0")}:00`} label="Peak Hour"  color={T.amber} />
         <StatCard val={avgDetections}  label="Avg / Person" color={T.text} />
         <StatCard val={namedCount}     label="Named"        color={T.green} />
-        <StatCard val={unknownCount}   label="Unknown"      color={T.muted2} />
+        <StatCard val={unknownCount}   label="unknown"      color={T.muted2} />
       </div>
 
       {/* Fluid Grid for Charts/Lists */}
@@ -993,7 +993,7 @@ function StatsTab() {
           <SectionLabel>Most Frequent Visitors</SectionLabel>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {clusters.slice(0, 7).map((c, i) => {
-              const isN = c.person_name !== "Unknown";
+              const isN = c.person_name !== "unknown";
               const max = clusters[0]?.count || 1;
               return (
                 <div key={c.cluster_id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1049,7 +1049,7 @@ function StatsTab() {
                               onError={e => { e.target.style.display = "none"; }} />
                           )}
                           <span style={{ fontSize: 10, color: T.text, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {c.person_name !== "Unknown" ? c.person_name : c.cluster_id}
+                            {c.person_name !== "unknown" ? c.person_name : c.cluster_id}
                           </span>
                         </div>
                       </td>
