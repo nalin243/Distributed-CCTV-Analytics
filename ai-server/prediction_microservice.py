@@ -16,9 +16,9 @@ app = Flask(__name__)
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8001"))
 COLLECTION_NAME = os.environ.get("CROPS_COLLECTION_NAME","")
-THRESHOLD = float(os.environ.get("PREDICTION_THRESHOLD", "0.75"))
+THRESHOLD = float(os.environ.get("DISTANCE_THRESHOLD", "0.3"))
 GAP_THRESHOLD = float(os.environ.get("GAP_THRESHOLD", "0.08"))
-RERANK_N = int(os.environ.get("RERANK_N", "20"))
+FALLBACK_N = int(os.environ.get("FALLBACK_N", "10"))
 RERANK_THRESHOLD = float(os.environ.get("RERANK_THRESHOLD", "0.50"))
 
 # Initialize ChromaDB client
@@ -26,7 +26,7 @@ chroma = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
 collection = chroma.get_collection(name=COLLECTION_NAME)
 
 def rerank(embedding, candidate_name, candidate_cluster_id,camera,
-           n=RERANK_N, agree_threshold=RERANK_THRESHOLD):
+        agree_threshold=RERANK_THRESHOLD):
     # We prioritize cluster_id but fallback to person_name if unassigned
     
     cluster_results = collection.get(
@@ -41,7 +41,7 @@ def rerank(embedding, candidate_name, candidate_cluster_id,camera,
     all_embeddings = cluster_results.get("embeddings")
 
     #Trigger global fallback if camera has 0 history OR not enough samples
-    if all_embeddings is None or len(all_embeddings) < n:
+    if all_embeddings is None or len(all_embeddings) < FALLBACK_N:
         cluster_results = collection.get(
             where={"cluster_id": candidate_cluster_id} if candidate_cluster_id != "unassigned" else {"person_name": candidate_name},
             include=["embeddings"]
@@ -55,20 +55,18 @@ def rerank(embedding, candidate_name, candidate_cluster_id,camera,
     # 2. Convert to NumPy once and Sample
     # This avoids the "Population must be a sequence" error
     all_vecs = np.array(all_embeddings, dtype=np.float32)
-    sample_size = min(n, len(all_vecs))
     
-    # Randomly select indices for the comparison
-    indices = np.random.choice(len(all_vecs), sample_size, replace=False)
-    sample_mat = all_vecs[indices]
+    sample_mat = all_vecs
+    sample_size = len(sample_mat)
 
     # 3. Vectorized Math (Cosine Distance)
     # Normalize query vector
     query_vec = np.array(embedding, dtype=np.float32)
-    query_vec /= (np.linalg.norm(query_vec) + 1e-9)
+    # query_vec /= (np.linalg.norm(query_vec) + 1e-9)
 
     # Normalize sample matrix rows for consistent cosine similarity
-    norms = np.linalg.norm(sample_mat, axis=1, keepdims=True)
-    sample_mat /= (norms + 1e-9)
+    # norms = np.linalg.norm(sample_mat, axis=1, keepdims=True)
+    # sample_mat /= (norms + 1e-9)
 
     # Compute all similarities in one CPU burst
     # Dot product of (N, 256) @ (256,) -> (N,)
@@ -108,7 +106,7 @@ def predict():
             n_results=n_votes,
             where={
             "$and":[
-                {"person_name": {"$ne": "Unknown"}},
+                {"person_name": {"$ne": "unknown"}},
                 {"camera": {"$eq":camera}}
             ]
             },
@@ -124,7 +122,7 @@ def predict():
             query_embeddings=[embedding],
             n_results=n_votes,
             where={
-                "person_name": {"$ne": "Unknown"}
+                "person_name": {"$ne": "unknown"}
             },
             include=["metadatas", "distances"]
         )
@@ -132,26 +130,19 @@ def predict():
         distances = results["distances"][0]   # list of n_votes distances
         metas     = results["metadatas"][0]   # list of n_votes metadatas
 
-        if not distances:
-            return jsonify({"identity": "Unknown", "confidence": 0.0,
-                            "match_found": False, "reason": "no_named_crops"})
+        # print(f"[DEBUG] {results}")
 
-        # Nearest neighbour check — if closest is too far, reject immediately
-        nearest_dist = distances[0]
-        if nearest_dist > threshold:
+        if not distances:
             return jsonify({
-                "identity":    "Unknown",
-                "confidence":  round(1 - nearest_dist, 3),
-                "match_found": False,
-                "reason":      "below_threshold",
-                "nearest_dist": round(nearest_dist, 3)
+                "identity": "unknown",
+                "match_found": False, 
+                "reason": "no_named_crops"
             })
 
         # Weighted vote across top-k neighbours
-        # Weight = 1 / distance so closer neighbours vote stronger
         vote_scores = {}
         for dist, meta in zip(distances, metas):
-            name   = meta.get("person_name", "Unknown")
+            name   = meta.get("person_name", "unknown")
             weight = 1.0 / (dist + 1e-6)
             vote_scores[name] = vote_scores.get(name, 0.0) + weight
 
@@ -160,6 +151,8 @@ def predict():
         best_name  = ranked[0][0]
         best_score = ranked[0][1]
 
+        print(f"[DEBUG] {ranked}")
+
         # After determining best_name, find the nearest crop that actually belongs to them
         best_cluster_id = "unassigned"
         for dist, meta in zip(distances, metas):
@@ -167,7 +160,7 @@ def predict():
                 best_cluster_id = meta.get("cluster_id", "unassigned")
                 break   # first hit is already the closest one for that person
 
-        # Ambiguity check — runner-up too close
+        # Ambiguity check — if the runner-up too close
         if len(ranked) > 1:
             second_score = ranked[1][1]
             total        = sum(s for _, s in ranked)
@@ -175,7 +168,7 @@ def predict():
             if gap < GAP_THRESHOLD:
                 return jsonify({
                     "identity":    "unknown",
-                    "confidence":  round(best_score / total, 3),
+                    "nearest_dist":  round(best_score / total, 3),
                     "match_found": False,
                     "reason":      "ambiguous",
                     "candidates":  [{"name": n, "score": round(s/total, 3)}
@@ -183,24 +176,19 @@ def predict():
                 })
 
         total      = sum(s for _, s in ranked)
-        confidence = best_score / total
-
+        # confidence = best_score / total
         response = rerank(embedding,best_name,best_cluster_id,camera)
-        print(response)
+        print(f"[DEBUG] best_name: {best_name}: {response}")
         if response is not None and response['confirmed']:
             return jsonify({
                 "identity":     best_name,
-                "confidence":   round(float(confidence), 3),
                 "match_found":  True,
-                "nearest_dist": round(nearest_dist, 3),
                 "cluster_id": best_cluster_id
             })
         else:
             return jsonify({
                 "identity":     best_name,
-                "confidence":   round(float(confidence), 3),
                 "match_found":  False,
-                "nearest_dist": round(nearest_dist, 3),
                 "cluster_id": best_cluster_id
             })
 
