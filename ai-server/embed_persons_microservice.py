@@ -213,6 +213,8 @@ class ImageHandler(FileSystemEventHandler):
             return
         if not event.src_path.lower().endswith(SUPPORTED_EXTENSIONS):
             return
+        if already_embedded(event.src_path):
+            return
         log.info(f"Live crop detected: {event.src_path}")
         if not wait_for_file_ready(event.src_path, timeout=5):
             log.warning(f"File not ready — queued for retry: {event.src_path}")

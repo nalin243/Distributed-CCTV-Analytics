@@ -150,6 +150,8 @@ class ImageHandler(FileSystemEventHandler):
             return
         if not event.src_path.lower().endswith(SUPPORTED_EXTENSIONS):
             return
+        if search_already_embedded(event.src_path):
+            return
 
         log.info(f"Incoming live image detected: {event.src_path}")
 
