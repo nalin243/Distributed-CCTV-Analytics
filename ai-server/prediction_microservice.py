@@ -1,10 +1,7 @@
 import numpy as np
 from flask import Flask, request, jsonify
 import chromadb
-from sklearn.preprocessing import normalize
 from collections import defaultdict
-import random
-import numpy as np
 import os
 
 from dotenv import load_dotenv
@@ -19,34 +16,21 @@ COLLECTION_NAME = os.environ.get("CROPS_COLLECTION_NAME","")
 THRESHOLD = float(os.environ.get("DISTANCE_THRESHOLD", "0.3"))
 GAP_THRESHOLD = float(os.environ.get("GAP_THRESHOLD", "0.08"))
 FALLBACK_N = int(os.environ.get("FALLBACK_N", "10"))
-RERANK_THRESHOLD = float(os.environ.get("RERANK_THRESHOLD", "0.50"))
+RERANK_THRESHOLD = float(os.environ.get("RERANK_THRESHOLD", "5.0"))
+RANK_DISTRIBUTION_THRESHOLD = float(os.environ.get("RANK_DISTRIBUTION_THRESHOLD", "0.60"))
+RERANK_MIN_DISTANCE_THRESHOLD = float(os.environ.get("RERANK_MIN_DISTANCE_THRESHOLD", "0.20"))
 
 # Initialize ChromaDB client
 chroma = chromadb.HttpClient(host=CHROMA_HOST, port=CHROMA_PORT)
 collection = chroma.get_collection(name=COLLECTION_NAME)
 
-def rerank(embedding, candidate_name, candidate_cluster_id,camera,
-        agree_threshold=RERANK_THRESHOLD):
-    # We prioritize cluster_id but fallback to person_name if unassigned
-    
-    cluster_results = collection.get(
-        where={
-            "$and": [
-                {"cluster_id": candidate_cluster_id} if candidate_cluster_id != "unassigned" else {"person_name": candidate_name},
-                {"camera": {"$eq": camera}}
-            ]
-        },
-        include=["embeddings"]
-    )
-    all_embeddings = cluster_results.get("embeddings")
+def rerank(embedding, candidate_name, candidate_cluster_id,agree_threshold=RERANK_THRESHOLD):
 
-    #Trigger global fallback if camera has 0 history OR not enough samples
-    if all_embeddings is None or len(all_embeddings) < FALLBACK_N:
-        cluster_results = collection.get(
+    cluster_results = collection.get(
             where={"cluster_id": candidate_cluster_id} if candidate_cluster_id != "unassigned" else {"person_name": candidate_name},
             include=["embeddings"]
         )
-        all_embeddings = cluster_results.get("embeddings")
+    all_embeddings = cluster_results.get("embeddings")
 
     # Absolute safety check: If the entire database has zero files for this person
     if all_embeddings is None or len(all_embeddings) == 0:
@@ -62,11 +46,11 @@ def rerank(embedding, candidate_name, candidate_cluster_id,camera,
     # 3. Vectorized Math (Cosine Distance)
     # Normalize query vector
     query_vec = np.array(embedding, dtype=np.float32)
-    # query_vec /= (np.linalg.norm(query_vec) + 1e-9)
+    query_vec /= (np.linalg.norm(query_vec) + 1e-9)
 
     # Normalize sample matrix rows for consistent cosine similarity
-    # norms = np.linalg.norm(sample_mat, axis=1, keepdims=True)
-    # sample_mat /= (norms + 1e-9)
+    norms = np.linalg.norm(sample_mat, axis=1, keepdims=True)
+    sample_mat /= (norms + 1e-9)
 
     # Compute all similarities in one CPU burst
     # Dot product of (N, 256) @ (256,) -> (N,)
@@ -76,11 +60,15 @@ def rerank(embedding, candidate_name, candidate_cluster_id,camera,
     # 4. Compile Results
     # Using float() and int() casts ensures the JSON response is serializable
     matches = int((dists <= THRESHOLD).sum())
-    agree_ratio = matches / sample_size
+    # agree_ratio = matches / sample_size
+
+    confirmed = False
+    if (bool(matches >= agree_threshold) or (np.min(dists) < RERANK_MIN_DISTANCE_THRESHOLD) ):
+        confirmed = True
 
     return {
-        "confirmed":   bool(agree_ratio >= agree_threshold),
-        "agree_ratio": round(float(agree_ratio), 3),
+        "confirmed":   confirmed,
+        "matches":     round(float(matches), 3),
         "mean_dist":   round(float(np.mean(dists)), 3),
         "min_dist":    round(float(np.min(dists)),  3),
         "max_dist":    round(float(np.max(dists)),  3),
@@ -106,7 +94,7 @@ def predict():
             n_results=n_votes,
             where={
             "$and":[
-                {"person_name": {"$ne": "unknown"}},
+                {"person_name": {"$nin": ["unknown","noise"]}},
                 {"camera": {"$eq":camera}}
             ]
             },
@@ -122,7 +110,7 @@ def predict():
             query_embeddings=[embedding],
             n_results=n_votes,
             where={
-                "person_name": {"$ne": "unknown"}
+                "person_name": {"$nin": ["unknown","noise"]}
             },
             include=["metadatas", "distances"]
         )
@@ -141,10 +129,12 @@ def predict():
 
         # Weighted vote across top-k neighbours
         vote_scores = {}
+        min_distances = {}
         for dist, meta in zip(distances, metas):
             name   = meta.get("person_name", "unknown")
             weight = 1.0 / (dist + 1e-6)
             vote_scores[name] = vote_scores.get(name, 0.0) + weight
+            min_distances[name] = min(min_distances.get(name,float('inf')),dist)
 
         # Sort by vote score
         ranked     = sorted(vote_scores.items(), key=lambda x: x[1], reverse=True)
@@ -160,36 +150,39 @@ def predict():
                 best_cluster_id = meta.get("cluster_id", "unassigned")
                 break   # first hit is already the closest one for that person
 
-        # Ambiguity check — if the runner-up too close
-        if len(ranked) > 1:
-            second_score = ranked[1][1]
-            total        = sum(s for _, s in ranked)
-            gap          = (best_score - second_score) / total
-            if gap < GAP_THRESHOLD:
-                return jsonify({
-                    "identity":    "unknown",
-                    "match_found": False,
-                    "reason":      "ambiguous",
-                    "candidates":  [{"name": n, "score": round(s/total, 3)}
-                                    for n, s in ranked[:3]]
-                })
+        total_score = sum(s for _, s in ranked)
+        norm_ranked = [(name, score / total_score) for name, score in ranked]
 
-        total      = sum(s for _, s in ranked)
-        # confidence = best_score / total
-        response = rerank(embedding,best_name,best_cluster_id,camera)
-        print(f"[DEBUG] best_name: {best_name}: {response}")
-        if response is not None and response['confirmed']:
-            return jsonify({
-                "identity":     best_name,
-                "match_found":  True,
-                "cluster_id": best_cluster_id
-            })
+        match_found = False
+
+        if len(ranked) > 1:
+            print(f"[DEBUG] Winner has rank distribution of: {norm_ranked[0][1]}, {best_name}: {min_distances[best_name]} (distance)")
+            if(norm_ranked[0][1] < RANK_DISTRIBUTION_THRESHOLD):
+                response = rerank(embedding,best_name,best_cluster_id)
+                print(f"[DEBUG] best_name: {best_name}: {response}")
+                if response is not None and response['confirmed']:
+                    match_found = True
+                else:
+                    match_found = False
+            else:
+                if min_distances[best_name] < THRESHOLD:
+                    match_found = True
+                else:
+                    match_found = False
         else:
-            return jsonify({
-                "identity":     best_name,
-                "match_found":  False,
-                "cluster_id": best_cluster_id
-            })
+            print(f"[DEBUG] Only one result returned, {best_name}: {min_distances[best_name]} (distance)")
+            if min_distances[best_name] < THRESHOLD:
+                match_found = True
+            else:
+                match_found = False
+
+        return jsonify({
+            "identity":     best_name,
+            "match_found":  match_found,
+            "cluster_id": best_cluster_id
+        })
+
+
 
     except Exception as e:
         print(e)
