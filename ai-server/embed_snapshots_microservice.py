@@ -199,12 +199,16 @@ def startup_scan():
     log.info(f"Startup scan complete. Processed {new_files_count} new files.")
 
 
-# --- Main ---
 if __name__ == "__main__":
     os.makedirs("/var/cctv", exist_ok=True)
     startup_scan()
 
-    # PollingObserver
+    # Capture initial inode identity
+    try:
+        initial_inode = os.stat(SNAPSHOTS_DIR).st_ino
+    except OSError:
+        initial_inode = None
+
     handler  = ImageHandler()
     observer = PollingObserver(timeout=2)
     observer.schedule(handler, SNAPSHOTS_DIR, recursive=True)
@@ -213,7 +217,56 @@ if __name__ == "__main__":
 
     try:
         while True:
-            time.sleep(1)
+            time.sleep(5)
+            
+            rebuild_needed = False
+            reason = ""
+            
+            try:
+                if not os.path.isdir(SNAPSHOTS_DIR):
+                    rebuild_needed = True
+                    reason = "Directory does not exist or is not a directory"
+                else:
+                    os.listdir(SNAPSHOTS_DIR)
+                    current_inode = os.stat(SNAPSHOTS_DIR).st_ino
+                    if initial_inode is None:
+                        initial_inode = current_inode
+                    elif current_inode != initial_inode:
+                        rebuild_needed = True
+                        reason = f"Inode shift detected (old: {initial_inode}, new: {current_inode})"
+            except OSError as e:
+                rebuild_needed = True
+                reason = f"Connectivity error/stale handle: {e}"
+
+            if rebuild_needed:
+                log.warning(f"Watched directory issue detected ({reason}). Rebuilding observer...")
+                
+                observer.stop()
+                observer.join()
+                
+                log.info(f"Waiting for {SNAPSHOTS_DIR} to become accessible again...")
+                while True:
+                    try:
+                        parent = os.path.dirname(SNAPSHOTS_DIR)
+                        if os.path.isdir(parent):
+                            os.listdir(parent)
+                        
+                        if os.path.isdir(SNAPSHOTS_DIR):
+                            os.listdir(SNAPSHOTS_DIR)
+                            initial_inode = os.stat(SNAPSHOTS_DIR).st_ino
+                            break
+                    except OSError:
+                        pass
+                    time.sleep(2)
+                
+                log.info(f"Directory restored. Rebuilding and starting new observer...")
+                observer = PollingObserver(timeout=2)
+                observer.schedule(handler, SNAPSHOTS_DIR, recursive=True)
+                observer.start()
+                
     except KeyboardInterrupt:
+        log.info("Stopping observer...")
         observer.stop()
+        
     observer.join()
+
